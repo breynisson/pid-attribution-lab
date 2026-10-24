@@ -169,3 +169,73 @@ func TestStaleExitPreservesHistory(t *testing.T) {
 		}
 	}
 }
+
+// TLC's faulty.cfg counterexample has six transitions after Init. Both lifetimes
+// have workload WA: checking only workload equality would miss the false match.
+func TestTLCDelayedEventBeforeOriginMetadata(t *testing.T) {
+	backend := newAttributor()
+	// 1: A starts, queuing metadata. 2: A captures E1, queuing its activity.
+	a := simulation.Metadata{
+		Key: simulation.ProcessKey{Scope: "lab", PID: 7, Incarnation: 1}, Workload: "WA",
+	}
+	event := simulation.Activity{EventID: "E1", Key: a.Key}
+	// 3: A physically exits; its exit notification stays queued.
+	// 4: B starts on the now-free PID, with the same workload but a new lifetime.
+	b := simulation.Metadata{
+		Key: simulation.ProcessKey{Scope: "lab", PID: 7, Incarnation: 2}, Workload: "WA",
+	}
+	// 5: Deliver B's metadata. 6: Deliver A's event, before A's metadata.
+	backend.DeliverMetadata(b)
+	want := simulation.Attribution{EventID: event.EventID}
+	if got := backend.DeliverActivity(event); got != want {
+		t.Fatalf("TLC trace: A's metadata is unavailable; same workload does not mean same process:\ncapture origin: %+v\nexpected: %+v\nactual:   %+v", a, want, got)
+	}
+	requireResult(t, backend, want)
+}
+
+func TestTLCUnfairDeliveryAndRecovery(t *testing.T) {
+	backend := newAttributor()
+	// unfair.cfg: A starts and captures E1, then exits before B starts.
+	// Incarnations are unique labels, not an ordering requirement.
+	a := simulation.Metadata{
+		Key: simulation.ProcessKey{Scope: "lab", PID: 7, Incarnation: 2}, Workload: "WA",
+	}
+	event := simulation.Activity{EventID: "E1", Key: a.Key}
+	b := simulation.Metadata{
+		Key: simulation.ProcessKey{Scope: "lab", PID: 7, Incarnation: 1}, Workload: "WA",
+	}
+	backend.DeliverMetadata(b)
+	backend.DeliverExit(a.Key)
+	unresolved := simulation.Attribution{EventID: event.EventID}
+	if got := backend.DeliverActivity(event); got != unresolved {
+		t.Fatalf("withheld origin metadata: expected %+v, got %+v", unresolved, got)
+	}
+	// TLC queues an E1 replay, then B exits and its exit is delivered.
+	// Neither the replay nor A's metadata is delivered before infinite stuttering.
+	backend.DeliverExit(b.Key)
+	requireResult(t, backend, unresolved)
+
+	// Extend the finite prefix with other work. It cannot substitute for A's
+	// metadata, and A's pending event must not prevent known events resolving.
+	known := simulation.Activity{EventID: "E2", Key: b.Key} // Captured before B exited.
+	wantKnown := simulation.Attribution{EventID: known.EventID, Resolved: true, Key: b.Key, Workload: b.Workload}
+	if got := backend.DeliverActivity(known); got != wantKnown {
+		t.Fatalf("known event during starvation: expected %+v, got %+v", wantKnown, got)
+	}
+	if got := backend.DeliverActivity(event); got != unresolved {
+		t.Fatalf("activity replay cannot supply metadata: expected %+v, got %+v", unresolved, got)
+	}
+	requireResult(t, backend, unresolved)
+
+	// Recovery is a separate continuation: delivery resumes. Resolution must
+	// finish in this call, without a worker, timer, or another activity delivery.
+	backend.DeliverMetadata(a)
+	want := simulation.Attribution{EventID: event.EventID, Resolved: true, Key: a.Key, Workload: a.Workload}
+	requireResult(t, backend, want)
+	requireResult(t, backend, wantKnown)
+	backend.DeliverExit(a.Key)
+	backend.DeliverMetadata(b)
+	if got := backend.DeliverActivity(event); got != want {
+		t.Fatalf("recovered result must remain stable: expected %+v, got %+v", want, got)
+	}
+}

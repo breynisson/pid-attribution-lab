@@ -160,8 +160,10 @@ Observed validation used Go 1.27.1 on macOS/arm64. Passing tests support the
 implemented contracts for the tested examples and sampled schedules; mutation
 results show that these particular defects are detected. Neither establishes
 exhaustive verification, global shrink minimality, detection of every defect,
-or correctness of a deployed telemetry system. There is no exhaustive permutation
-check of complete message sets and no TLA+ model-checking result.
+or correctness of a deployed telemetry system. The Go suite has no exhaustive
+permutation check of complete message sets. A separate [bounded TLA+ model](../formal/README.md)
+now reproduces a faulty counterexample and checks corrected safety and conditional
+liveness in explicit finite configurations. It does not prove Go refinement.
 
 Real identity capture, boot detection, concurrency, crash recovery, resource
 bounds, and conflicting metadata remain unverified. Withheld-metadata fixtures

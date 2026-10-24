@@ -4,6 +4,9 @@ package simulation
 // capture-time process identity. Use New to initialize it. Calls must be serial.
 // Process keys identify unique lifetimes; history is retained without expiry.
 // Event IDs identify logical events: their first delivery fixes their origin.
+// Resolution is synchronous once both activity and matching metadata arrive.
+// Missing metadata leaves an event unresolved indefinitely; this component does
+// not fetch metadata or schedule delivery. Callers own delivery progress.
 type Attributor struct {
 	metadata map[ProcessKey]Metadata
 	pending  map[ProcessKey][]string
@@ -18,6 +21,7 @@ func New() *Attributor {
 	}
 }
 
+// DeliverMetadata resolves all received events for this exact key before returning.
 func (a *Attributor) DeliverMetadata(metadata Metadata) {
 	a.metadata[metadata.Key] = metadata
 	for _, eventID := range a.pending[metadata.Key] {

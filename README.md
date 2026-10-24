@@ -6,7 +6,8 @@ identity, retains historical metadata, and leaves missing information explicitly
 unresolved. The original faulty implementation remains available for comparison.
 
 This is a learning project motivated by runtime-security telemetry. Core milestones
-1–5 are complete; the optional formal model and Linux integration are not built.
+1–5 are complete. An optional [bounded TLA+ model](formal/README.md) now checks
+safety and conditional liveness separately; Linux integration is not built.
 
 ## Run the passing suite
 
@@ -72,6 +73,7 @@ skipped in this mode because they require the corrected baseline.
 | [attributor_test.go](simulation/attributor_test.go), [complications_test.go](simulation/complications_test.go) | Regression traces, replay behavior, scope/boot isolation, missing metadata, and repeated reuse. |
 | [property_test.go](simulation/property_test.go), [contract_test.go](simulation/contract_test.go) | Generated schedules, independent oracle, and shared implementation selection. |
 | [mutation_test.go](simulation/mutation_test.go) | Five targeted faults checked against named tests. |
+| [formal/](formal/README.md) | TLA+ model, TLC configurations, counterexample, and bounded-check results. |
 
 [Findings](simulation/FINDINGS.md) explains the counterexamples, guarantees,
 mutation evidence, and practical limits. [The counterexample log](simulation/COUNTEREXAMPLE.md)
