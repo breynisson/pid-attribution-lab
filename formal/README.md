@@ -6,6 +6,11 @@ false attribution with the PID-only algorithm. The corrected algorithm then
 passed the configured safety invariants. Separate liveness runs failed without
 delivery fairness and passed with it.
 
+[Boundary models](extensions/README.md) additionally explore conflicting replays
+and metadata, capacity, crashes, capture races, physical boots, and concurrent
+calls. They distinguish current behavior from proposed contracts and include
+expected counterexamples.
+
 These are bounded model-checking results, not a proof that the Go implementation
 refines the model or that arbitrary system sizes are correct.
 
@@ -240,8 +245,10 @@ safety checks or treating an unresolved event as resolved.
 TLC completed the corrected configurations' finite graphs; it did not establish correctness for
 arbitrary numbers of scopes, PIDs, lifetimes, workloads, or events. The two safety
 configurations do not jointly cover a larger Cartesian product of their bounds.
-The model omits conflicting replays, conflicting metadata, resource limits,
+This base model omits conflicting replays, conflicting metadata, resource limits,
 crashes, real sensor capture, concurrent delivery calls, and physical boot detection.
+The separate [boundary models](extensions/README.md) explore abstractions of these
+complications; they are not a combined-system check or a real sensor integration.
 An incarnation is a unique label, not a modeled timestamp or monotonic clock.
 
 The model and Go implementation share the observation boundary and attribution

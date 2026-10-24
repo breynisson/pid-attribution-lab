@@ -8,6 +8,8 @@ unresolved. The original faulty implementation remains available for comparison.
 This is a learning project motivated by runtime-security telemetry. Core milestones
 1–5 are complete. An optional [bounded TLA+ model](formal/README.md) now checks
 safety and conditional liveness separately; Linux integration is not built.
+[Boundary models](formal/extensions/README.md) explore conflicts, capacity,
+crashes, capture/boot identity, and concurrent delivery with explicit assumptions.
 
 ## Run the passing suite
 

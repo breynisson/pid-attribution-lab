@@ -166,7 +166,10 @@ now reproduces a faulty counterexample and checks corrected safety and condition
 liveness in explicit finite configurations. It does not prove Go refinement.
 
 Real identity capture, boot detection, concurrency, crash recovery, resource
-bounds, and conflicting metadata remain unverified. Withheld-metadata fixtures
+bounds, and conflicting metadata remain unverified in the Go implementation.
+Separate [boundary models](../formal/extensions/README.md) now explore these
+contracts and their failure cases; they do not verify real sensor or storage
+integration or compose all complications. Withheld-metadata fixtures
 exercise finite traces, not infinite-time liveness. A future eventual-resolution
 claim would also require eventual delivery of both messages and sufficient
 retention. The Go module declares a 1.23 minimum; this validation was not a
