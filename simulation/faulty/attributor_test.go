@@ -1,6 +1,7 @@
 package faulty_test
 
 import (
+	"fmt"
 	"testing"
 
 	simulation "example.com/pid-attribution-lab"
@@ -55,5 +56,40 @@ func TestDelayedEventAfterPIDReuse(t *testing.T) {
 	want := oracle[delayed.EventID]
 	if got != want {
 		t.Fatalf("E must belong to A, its capture-time origin:\nexpected: %+v\nactual:   %+v", want, got)
+	}
+}
+
+// Preserves the eight-action Safety trace shrunk by Rapid from seed 11.
+// The unrelated PID 2/3 starts are retained to match that trace exactly.
+func TestNewEventWithOnlyPreviousLifetimeMetadata(t *testing.T) {
+	backend := faulty.New()
+	live := make(map[int]simulation.Metadata)
+	var metadataQueue []simulation.Metadata
+	for pid := 1; pid <= 3; pid++ {
+		metadata := simulation.Metadata{
+			Key:        simulation.ProcessKey{Scope: "lab", PID: pid, Incarnation: uint64(pid)},
+			Executable: fmt.Sprintf("process-%d", pid), Workload: fmt.Sprintf("workload-%d", pid),
+		}
+		live[pid] = metadata
+		metadataQueue = append(metadataQueue, metadata)
+	}
+	// The old process exits physically, but its exit is not delivered.
+	delete(live, 1)
+	if _, occupied := live[1]; occupied {
+		t.Fatal("invalid world: cannot reuse a live PID")
+	}
+	live[1] = simulation.Metadata{
+		Key:        simulation.ProcessKey{Scope: "lab", PID: 1, Incarnation: 4},
+		Executable: "process-4", Workload: "workload-4",
+	}
+	metadataQueue = append(metadataQueue, live[1])
+	origin := live[1]
+	event := simulation.Activity{EventID: "E1", Key: origin.Key, Kind: "file-open"}
+	// Deliver only the previous lifetime's metadata, then the new event.
+	backend.DeliverMetadata(metadataQueue[0])
+	got := backend.DeliverActivity(event)
+	want := simulation.Attribution{EventID: event.EventID}
+	if got != want {
+		t.Fatalf("new event must remain unresolved without its matching metadata:\ncapture origin: %+v\ndelivery: old metadata, new activity (new metadata queued; old exit undelivered)\nexpected: %+v\nactual:   %+v", origin, want, got)
 	}
 }
