@@ -1,5 +1,10 @@
 # Milestone 1: a delayed event crosses PID lifetimes
 
+Current status: milestone 3 adds a corrected implementation and the normal suite
+passes. Earlier sections record the original failures; their commands now opt
+into the faulty implementation. See [milestone 3](#milestone-3-full-identity-and-retained-history)
+for the fix, assumptions, and passing commands.
+
 The ordinary Go test reproduces a false attribution. The implementation in
 `faulty/` is deliberately incorrect and remains unfixed for this milestone.
 
@@ -7,7 +12,7 @@ From the repository root, run:
 
 ```sh
 cd simulation
-go test ./faulty -run '^TestDelayedEventAfterPIDReuse$' -count=1 -v
+PID_ATTRIBUTION_FAULTY=1 go test . -run '^TestDelayedEventAfterPIDReuse$' -count=1 -v
 ```
 
 In a restricted environment, set `GOCACHE=/tmp/pid-attribution-go-build` on the
@@ -90,7 +95,7 @@ milestones. `PROJECT_PLAN.md` remains unchanged.
 
 ## Milestone 2: generated counterexamples
 
-`faulty/property_test.go` now imports the pinned Rapid v1.3.0 as a test-only
+At milestone 2, `faulty/property_test.go` (now `property_test.go`) imports the pinned Rapid v1.3.0 as a test-only
 dependency. The module is available locally and `go.sum` now includes its content
 checksum. Production code and public APIs are unchanged. These tests still
 intentionally fail; the fix and opt-in failure flag belong to milestone 3.
@@ -173,17 +178,17 @@ From `simulation/` (add `GOCACHE=/tmp/pid-attribution-go-build` if needed):
 
 ```sh
 # Constrained identities within the original causal skeleton.
-go test ./faulty -run '^TestPropertyDelayedEventAfterPIDReuse$' -count=1 -v -rapid.seed=1 -rapid.nofailfile
+PID_ATTRIBUTION_FAULTY=1 go test . -run '^TestPropertyDelayedEventAfterPIDReuse$' -count=1 -v -rapid.seed=1 -rapid.nofailfile
 
 # Replay the stateful safety counterexample and its ordinary regression.
-go test ./faulty -run '^TestStatefulAttribution$/Safety$' -count=1 -v -rapid.seed=11 -rapid.nofailfile
-go test ./faulty -run '^TestNewEventWithOnlyPreviousLifetimeMetadata$' -count=1 -v
+PID_ATTRIBUTION_FAULTY=1 go test . -run '^TestStatefulAttribution$/Safety$' -count=1 -v -rapid.seed=11 -rapid.nofailfile
+PID_ATTRIBUTION_FAULTY=1 go test . -run '^TestNewEventWithOnlyPreviousLifetimeMetadata$' -count=1 -v
 
 # Replay activity-before-metadata missing resolution.
-go test ./faulty -run '^TestStatefulAttribution$/UsefulAttribution$' -count=1 -v -rapid.seed=3 -rapid.nofailfile
+PID_ATTRIBUTION_FAULTY=1 go test . -run '^TestStatefulAttribution$/UsefulAttribution$' -count=1 -v -rapid.seed=3 -rapid.nofailfile
 
 # Run the entire intentionally failing suite with a reproducible seed.
-go test ./... -count=1 -rapid.seed=11 -rapid.nofailfile
+PID_ATTRIBUTION_FAULTY=1 go test ./... -count=1 -rapid.seed=11 -rapid.nofailfile
 ```
 
 Each command above is expected to exit with status 1 for an attribution assertion,
@@ -193,3 +198,79 @@ explore fresh sequences. A different seed may find a different valid failure.
 The tests expose counterexamples; they do not exhaustively verify all schedules.
 
 API reference: [Rapid v1.3.0 documentation](https://pkg.go.dev/pgregory.net/rapid@v1.3.0).
+
+## Milestone 3: full identity and retained history
+
+`attributor.go` adds the corrected `simulation.New()` implementation. Metadata
+is indexed by the entire capture-time `ProcessKey`: scope, PID, and incarnation.
+Exits do not delete history. This component attributes events and does not track
+process liveness, so accepting an exit requires no attribution-state mutation.
+A stale exit therefore cannot erase a newer lifetime or prevent resolution of a
+delayed event from the old lifetime.
+
+An activity whose matching metadata is missing produces an explicitly unresolved
+result. Its event ID is stored under its exact process key. When matching metadata
+arrives, all pending events for that key resolve before `DeliverMetadata` returns;
+pending events from other lifetimes stay unresolved. Resolved results are retained
+by event ID.
+
+`Result(eventID)` returns the latest attribution plus a boolean indicating whether
+the activity was delivered. An unknown event returns `false`; a delivered but
+unresolved event returns `true` with `Resolved == false`. The value returned by
+`DeliverActivity` remains a snapshot. Query `Result` after metadata delivery to
+observe an update, without delivering the activity again.
+
+The tests moved from `faulty/` into the module root so both implementations run
+against the same contract. `contract_test.go` selects the corrected implementation
+by default. With `PID_ATTRIBUTION_FAULTY=1`, a test-only adapter records the original
+faulty implementation's return values for querying. It adds no resolution logic
+and cannot access the private world or oracle. `faulty/attributor.go` and its public
+API are unchanged.
+
+The stateful harness queries actual results after each action and checks safety,
+honest uncertainty, and stability of resolved results; the combined run also
+checks useful attribution. Its capture-time oracle and valid physical transitions
+remain independent of the implementation. Ordinary tests preserve both earlier
+safety traces and the four-action activity-before-metadata trace, and cover
+multiple pending events and stale exits.
+
+### Guarantees and limits
+
+- **Identity uniqueness:** different process lifetimes must never share the full
+  key, and the sensor must capture that key correctly when the event occurs.
+  A collision or an incorrect capture-time key makes a wrong match possible even
+  with this implementation. Synthetic incarnation uniqueness remains an assumption.
+- **Retention:** resolving delayed activities requires historical metadata;
+  resolving activity-before-metadata requires retaining pending events. Both are
+  retained without expiration here, and resolved results are retained for queries.
+  This gives unbounded memory growth. A future expiration policy must narrow the
+  useful-attribution guarantee and leave insufficient information unresolved.
+  Safety must never be recovered by falling back to the current PID holder.
+- **Delivery and consistency:** useful attribution is required once both messages
+  arrive. It does not promise resolution if matching metadata never arrives.
+  Order independence relies on retained history, unique event IDs, and immutable,
+  nonconflicting metadata. Duplicate and conflicting-message contracts are outside
+  this milestone. Generated tests sample schedules; they do not prove all schedules.
+- **Execution:** no goroutines, channels, locks, or sleeps were introduced. Each
+  delivery completes synchronously; the explicit test queue varies order in one
+  goroutine. The attributor's maps require serialized calls and are not safe for
+  concurrent access. Concurrency remains a separate extension.
+
+### Validation and current commands
+
+From `simulation/`, run the deterministic regressions before the property suite:
+
+```sh
+go test . -run '^(TestDelayedEventAfterPIDReuse|TestNewEventWithOnlyPreviousLifetimeMetadata|TestActivityBeforeMetadata|TestPendingEventsMatchExactLifetime|TestStaleExitPreservesHistory)$' -count=1 -v
+go test ./... -count=1 -v -rapid.seed=11 -rapid.nofailfile
+go vet ./...
+```
+
+All five regressions passed first. The complete corrected suite then passed,
+including 100 constrained cases, 100 stateful safety cases, and 100 stateful
+combined-property cases with seed 11. `go vet ./...` also passed. Normal
+`go test ./...` uses the corrected implementation and chooses a fresh Rapid seed.
+
+The same suite with `PID_ATTRIBUTION_FAULTY=1` and seed 11 exited with status 1,
+reproducing wrong-lifetime attribution and missing resolution, including failures
+in all five deterministic tests. No dependency was added or upgraded.

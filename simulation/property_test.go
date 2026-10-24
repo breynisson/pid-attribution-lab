@@ -1,4 +1,4 @@
-package faulty_test
+package simulation_test
 
 import (
 	"fmt"
@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	simulation "example.com/pid-attribution-lab"
-	"example.com/pid-attribution-lab/faulty"
 	"pgregory.net/rapid"
 )
 
@@ -25,7 +24,7 @@ func TestPropertyDelayedEventAfterPIDReuse(t *testing.T) {
 			Key:        simulation.ProcessKey{Scope: "lab", PID: pid, Incarnation: first + gap},
 			Executable: "B", Workload: workload + "-B",
 		}
-		backend := faulty.New()
+		backend := newAttributor()
 		backend.DeliverMetadata(a)
 		event := simulation.Activity{EventID: "E", Key: a.Key, Kind: "file-open"}
 		// Capture the expected answer before exit or reuse, without backend state.
@@ -68,7 +67,7 @@ func TestStatefulAttribution(t *testing.T) {
 }
 
 func checkStatefulAttribution(t *rapid.T, checkUseful bool) {
-	backend := faulty.New()
+	backend := newAttributor()
 	live := make(map[int]simulation.Metadata)
 	oracle := make(map[string]simulation.Attribution)
 	deliveredMetadata := make(map[simulation.ProcessKey]bool)
@@ -155,14 +154,22 @@ func checkStatefulAttribution(t *rapid.T, checkUseful bool) {
 		},
 		"": func(t *rapid.T) {
 			// Repeat checks after every action, including every message delivery.
-			// The current API returns values only on activity delivery. Retain
-			// those observations; never redeliver activities to manufacture a fix.
-			for _, observation := range results {
-				got := observation.result
+			// Query actual stored results to observe metadata-triggered updates;
+			// never redeliver an activity or derive a result from oracle metadata.
+			for i, observation := range results {
+				got, ok := backend.Result(observation.eventID)
 				want := oracle[observation.eventID]
 				property := ""
-				if got.Resolved && got != want {
+				if !ok {
+					property = "delivered event has a result"
+				} else if observation.result.Resolved && observation.result != want {
+					property = "no false attribution in activity response"
+				} else if got.Resolved && got != want {
 					property = "no false attribution"
+				} else if got.Resolved && !deliveredMetadata[want.Key] {
+					property = "honest uncertainty"
+				} else if observation.result.Resolved && got != observation.result {
+					property = "historical identity"
 				} else if checkUseful && deliveredMetadata[want.Key] && !got.Resolved {
 					property = "useful attribution"
 				}
@@ -174,6 +181,7 @@ func checkStatefulAttribution(t *rapid.T, checkUseful bool) {
 					t.Fatalf("%s violated\nworld/delivery trace:\n%s\ncapture origin: %+v\nexpected with delivered metadata: %+v\nactual:                           %+v",
 						property, strings.Join(trace, "\n"), want, expected, got)
 				}
+				results[i].result = got
 			}
 		},
 	})
