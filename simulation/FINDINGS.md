@@ -123,7 +123,7 @@ idempotent; conflicting metadata is outside the contract. Agreement across
 delivery orders assumes nonconflicting messages and retention. Changing which
 conflicting payload arrives first can change the result.
 
-Calls are serial, with no added goroutines, channels, or locks. Explicit queues
+In the original core, calls are serial, with no goroutines, channels, or locks. Explicit queues
 model ordering, not concurrent execution. The maps are not safe for concurrent
 access. Workload identity is fixed per lifetime; threads, `exec`, and workload
 migration are not modeled.
@@ -174,9 +174,12 @@ failures in child processes. This records the input-trust limits, not support fo
 untrusted inputs. A separate passing regression checks already-published result
 stability, and the sixth mutation confirms that it detects lost pending cleanup.
 
-Real identity capture, boot detection, concurrency, crash recovery, resource
-bounds remain unverified in the Go implementation; conflicting metadata remains
-outside its supported contract, with the false-attribution case now reproduced.
+Real identity capture and actual reboot integration remain unverified. Subsequent
+[Go boundary implementations](BOUNDARIES.md) add tested capacity rejection,
+snapshot recovery, whole-call serialization, and a capture adapter with a Linux
+boot-ID reader. The original core still assumes serial calls and immutable
+metadata; its conflicting-metadata counterexample remains reproducible. The new
+backend rejects later conflicting metadata but cannot authenticate the first value.
 Separate [boundary models](../formal/extensions/README.md) now explore these
 contracts and their failure cases; they do not verify real sensor or storage
 integration or compose all complications. Withheld-metadata fixtures

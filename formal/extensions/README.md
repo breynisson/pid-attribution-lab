@@ -2,8 +2,9 @@
 
 These focused models extend the original [attribution model](../README.md).
 They separate existing Go behavior from proposed environment and storage
-contracts. They do not implement these features in Go, nor compose all seven
-complications into a single verified system.
+contracts. Subsequent [Go boundary implementations](../../simulation/BOUNDARIES.md)
+implement selected contracts. Neither these models nor those tests compose all
+seven complications into a single verified system.
 
 ## Contracts defined before modeling
 
@@ -11,13 +12,13 @@ complications into a single verified system.
    subsequent conflicting payloads must not rebind it or change a resolved result.
    Agreement with capture truth additionally requires the first payload to be
    truthful. A forged first payload cannot be recognized from the ID alone.
-2. **Conflicting metadata:** the current Go map overwrites metadata for a key;
+2. **Conflicting metadata:** the original Go `Attributor` map overwrites metadata for a key;
    already-resolved results stay fixed. Capture-truth correctness requires
    immutable, truthful metadata. First-writer-wins alone would not authenticate
    the first value. Conflicting input is tested as a broken assumption, not
    silently excluded or presented as supported behavior.
 3. **Resource limits:** count retained metadata entries and event records
-   (including unresolved records). Compare today's unbounded admission with a
+   (including unresolved records). Compare the core's unbounded admission with a
    proposed policy that explicitly rejects new entries at capacity, accepts
    duplicates, and never silently evicts accepted work. Rejected inputs carry no
    eventual-resolution guarantee. Counts are logical entries, not byte limits.
@@ -38,7 +39,8 @@ complications into a single verified system.
    publication from metadata insertion, pending resolution, and cleanup. At
    quiescence, both delivered inputs must produce a resolved result. Compare
    arbitrary interleaving with a lock covering each whole delivery operation.
-   Current Go requires serial calls; the lock is a proposed caller/wrapper contract.
+   The core requires serial calls; the new Go `Backend` implements the modeled
+   whole-call lock contract.
 
 All checks here are safety checks without fairness. Crash recovery, capture
 completion, lock acquisition, metadata delivery, and retry of rejected work have
@@ -64,12 +66,11 @@ exit/reuse/reboot cannot change the saved identity, not that a real sensor can
 obtain such a snapshot.
 
 The concurrency counterexample is meaningful even under idealized atomic memory
-accesses. Actual concurrent calls to the current Go implementation are unsupported
+accesses. Actual concurrent calls to the original Go `Attributor` are unsupported
 and also involve unsynchronized maps. The [Go memory model](https://go.dev/ref/mem)
-requires synchronization for shared concurrent access. A real wrapper would need
-to serialize all methods, including `Result`; this small model checks only the
-two delivery calls. No goroutines, locks, storage engines, or sensors were added
-to the Go implementation.
+requires synchronization for shared concurrent access. The new Go `Backend`
+serializes all methods, including `Result`; this small model checks only the
+two delivery calls. See its [implementation limits](../../simulation/BOUNDARIES.md).
 
 ## Reproduce
 
@@ -209,10 +210,10 @@ go test ./... -count=1 -rapid.seed=11 -rapid.nofailfile
 
 The regression, parent checks, and mutation check passed; both direct
 demonstrations failed at the expected safety assertion. No goroutines were added.
-Capacity rejection, crash recovery, sensor capture, physical boot detection, and
-concurrent-call serialization have no corresponding implementation here. Porting
-their model alternatives into synthetic Go helpers would test those helpers, not
-the attributor, so those implementation tests remain future work.
+Subsequent [boundary implementations and tests](../../simulation/BOUNDARIES.md)
+cover capacity rejection, snapshot recovery, capture adaptation, boot-ID reading,
+and serialized delivery. A real event source and actual reboot integration remain
+future work. The original core and its intentional counterexamples remain intact.
 
 ## Limits and liveness
 
@@ -236,6 +237,7 @@ delivery safety does not imply fair lock acquisition or completion. Capture need
 eventual completion and a trustworthy, nonrepeating boot identity; delayed boot
 detection alone supplies neither coherence nor uniqueness.
 
-No actual kernel sensor, boot-ID source, disk, or concurrent Go wrapper was
-implemented or verified. Integration would require concrete contracts and tests
-at those boundaries. The original no-fairness liveness failure remains valid.
+The model checks do not verify an actual kernel sensor, boot-ID source, disk, or
+concurrent Go wrapper. The subsequent Go implementations have separate test
+evidence, not a model-refinement proof. The original no-fairness liveness failure
+remains valid.

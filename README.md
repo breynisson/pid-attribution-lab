@@ -10,11 +10,15 @@ This is a learning project motivated by runtime-security telemetry. Core milesto
 safety and conditional liveness separately; Linux integration is not built.
 [Boundary models](formal/extensions/README.md) explore conflicts, capacity,
 crashes, capture/boot identity, and concurrent delivery with explicit assumptions.
+[Go boundary implementations](simulation/BOUNDARIES.md) now add a bounded,
+serialized backend, file-snapshot recovery, and a capture adapter with a Linux
+boot-ID reader. A live event collector remains future work.
 
 ## Run the passing suite
 
 Use Go 1.23 or newer with `go` on `PATH`, a writable build cache, and network
 access for the initial dependency download unless it is already cached.
+The full suite targets macOS/Linux with a local filesystem for snapshot tests.
 [Rapid v1.3.0](simulation/go.mod) is pinned and used only in tests. There are no
 production dependencies, services, databases, or Linux privilege requirements.
 
@@ -22,7 +26,7 @@ From the repository root:
 
 ```sh
 cd simulation
-unset PID_ATTRIBUTION_FAULTY PID_ATTRIBUTION_UNTRUSTED_DEMO
+unset PID_ATTRIBUTION_FAULTY PID_ATTRIBUTION_UNTRUSTED_DEMO PID_ATTRIBUTION_CRASH_SNAPSHOT
 go test . -run '^(TestDelayedEventAfterPIDReuse|TestNewEventWithOnlyPreviousLifetimeMetadata|TestActivityBeforeMetadata)$' -count=1 -v
 go test ./... -count=1 -rapid.seed=11 -rapid.nofailfile
 go vet ./...
@@ -73,6 +77,8 @@ skipped in this mode because they require the corrected baseline.
 |---|---|
 | [records.go](simulation/records.go) | Process identity, metadata, activity, and attribution records. |
 | [attributor.go](simulation/attributor.go) | Corrected synchronous attributor; `Result(eventID)` exposes later resolution. |
+| [backend.go](simulation/backend.go), [file_snapshot.go](simulation/file_snapshot.go) | Bounded, serialized delivery with optional snapshot persistence and restart recovery. |
+| [sensor.go](simulation/sensor.go) | Coherent-source capture adapter, fresh boot detection, and Linux boot-ID reader. |
 | [faulty/attributor.go](simulation/faulty/attributor.go) | Original current-PID lookup. |
 | [attributor_test.go](simulation/attributor_test.go), [complications_test.go](simulation/complications_test.go) | Regression traces, replay behavior, scope/boot isolation, missing metadata, and repeated reuse. |
 | [property_test.go](simulation/property_test.go), [contract_test.go](simulation/contract_test.go) | Generated schedules, independent oracle, and shared implementation selection. |
@@ -86,5 +92,6 @@ preserves the milestone history and additional replay commands.
 [The project plan](PROJECT_PLAN.md) describes the original scope and optional work.
 
 Passing generated tests provide evidence for the sampled schedules and explicit
-assumptions. They are not exhaustive verification. Identity capture is synthetic,
-history is unbounded, and callers must serialize access.
+assumptions. They are not exhaustive verification. The core remains unbounded
+and serial-only; the new backend and capture adapter have separately documented
+[contracts and limits](simulation/BOUNDARIES.md). Real event capture is still unverified.
