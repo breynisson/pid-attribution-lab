@@ -1,8 +1,10 @@
 # Milestone 1: a delayed event crosses PID lifetimes
 
-Current status: milestone 4 adds replay handling, complication tests, and checks
-that targeted mutations are caught. The normal suite passes. Earlier sections
-record the original failures; their commands opt into the faulty implementation.
+Current status: core milestones 1–5 are complete and the normal suite passes.
+[README.md](../README.md) provides setup and reproduction commands;
+[FINDINGS.md](FINDINGS.md) explains the result and its limits. This file preserves
+the milestone history. Earlier sections record the original failures; their
+commands opt into the faulty implementation.
 See [milestone 3](#milestone-3-full-identity-and-retained-history) for the fix and
 [milestone 4](#milestone-4-challenging-the-contract) for the added contracts and limits.
 
