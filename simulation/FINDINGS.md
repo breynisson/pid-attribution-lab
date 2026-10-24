@@ -140,7 +140,7 @@ the original single-scope state machine.
 
 The mutation harness checks the actual corrected source through temporary build
 overlays. Each named test must pass without the fault and fail with it. A missing
-test or build failure does not count. The five detected faults are:
+test or build failure does not count. The six detected faults are:
 
 | Fault | Named test | Property exposed |
 |---|---|---|
@@ -149,6 +149,7 @@ test or build failure does not count. The five detected faults are:
 | Delete history on exit | `TestDelayedEventAfterPIDReuse` | Useful attribution with retained metadata |
 | Always return unresolved | `TestActivityBeforeMetadata` | Useful attribution |
 | Remove event-ID deduplication | `TestEventIDKeepsFirstOrigin` | Replay stability |
+| Keep resolved events in the pending index | `TestTLCResolvedResultSurvivesMetadataConflict` | Published-result stability under contradictory metadata (a characterization outside the immutable-input contract) |
 
 To inspect those failures while keeping the overall check passing:
 
@@ -165,8 +166,17 @@ permutation check of complete message sets. A separate [bounded TLA+ model](../f
 now reproduces a faulty counterexample and checks corrected safety and conditional
 liveness in explicit finite configurations. It does not prove Go refinement.
 
+[Transferred model tests](../formal/extensions/README.md#go-tests-transferred-from-the-models)
+also reproduce corrupt-first-activity and conflicting-metadata counterexamples
+against the corrected Go implementation. Their independent capture-truth
+assertions intentionally fail; the passing parent test verifies those specific
+failures in child processes. This records the input-trust limits, not support for
+untrusted inputs. A separate passing regression checks already-published result
+stability, and the sixth mutation confirms that it detects lost pending cleanup.
+
 Real identity capture, boot detection, concurrency, crash recovery, resource
-bounds, and conflicting metadata remain unverified in the Go implementation.
+bounds remain unverified in the Go implementation; conflicting metadata remains
+outside its supported contract, with the false-attribution case now reproduced.
 Separate [boundary models](../formal/extensions/README.md) now explore these
 contracts and their failure cases; they do not verify real sensor or storage
 integration or compose all complications. Withheld-metadata fixtures

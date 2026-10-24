@@ -162,6 +162,58 @@ The fixed configurations plus named expected failures are executable model
 regressions. These traces were found by breadth-first TLC search, not by the Go
 property generator's shrinker. They do not demonstrate a deployed system failure.
 
+## Go tests transferred from the models
+
+[formal_test.go](../../simulation/formal_test.go) exercises the actual Go attributor
+without requiring Java or TLC. These are hand-translated traces and properties,
+not an automatic refinement check.
+
+| Model evidence | Go coverage |
+|---|---|
+| `conflict-stability`: resolved answers remain stable | `TestTLCResolvedResultSurvivesMetadataConflict` checks both activity-first and metadata-first resolution, followed by contradictory metadata and an activity replay. |
+| `replay-first-corrupt`: first-arrival stability cannot authenticate origin | `TestTLCCaptureTruthWithUntrustedInputs/corrupt-first-activity` delivers E2 claiming A, then A's metadata, while its private capture truth says B. |
+| `metadata-conflict`: overwrite corrupts a later attribution | `TestTLCCaptureTruthWithUntrustedInputs/conflicting-metadata` delivers A/WA, then A/WB, then E1. Private capture truth remains A/WA. |
+| `replay`: first delivered origin survives conflicting replay | Existing `TestEventIDKeepsFirstOrigin`. |
+| Fresh boot scope isolates reused PID/incarnation values | Existing `TestRebootUsesFreshScope`; this tests backend handling of supplied identities, not physical boot detection. |
+
+The two untrusted-input assertions intentionally fail with the current corrected
+implementation. They check `resolved => answer equals capture truth`, so an honest
+unresolved answer would satisfy this safety assertion. The default suite runs
+`TestTLCInputAssumptionCounterexamples`, which starts each assertion in an isolated
+Go test process and requires the named test to fail specifically at the capture
+truth assertion. Missing tests, setup/build errors, or unrelated failures do not
+count. The direct demonstration is otherwise skipped to keep `go test ./...`
+passing. No production fault switch is added.
+
+The stability regression is a characterization of current behavior under invalid
+input, not a promise that conflicting metadata is supported. Its targeted mutation
+removes pending-event cleanup: an activity-first result then changes from WA to WB
+when contradictory metadata arrives. The regression catches that mutation. If a
+future input-validation policy rejects conflicts or changes their handling, review
+these characterizations and the model together; do not preserve an unsafe behavior
+just to retain an expected failure.
+
+From `simulation/`, run the transferred tests before the generated property suite:
+
+```sh
+# Passing regression and automated expected-counterexample checks (exit 0).
+go test . -run '^(TestTLCResolvedResultSurvivesMetadataConflict|TestTLCInputAssumptionCounterexamples)$' -count=1 -v
+go test . -run '^TestTargetedMutations/keep-resolved-events-pending$' -count=1 -v
+
+# Direct capture-truth demonstrations: both subtests intentionally fail (exit 1).
+PID_ATTRIBUTION_UNTRUSTED_DEMO=1 go test . -run '^TestTLCCaptureTruthWithUntrustedInputs$' -count=1 -v
+
+# Passing full suite; the preceding environment assignment was command-local.
+go test ./... -count=1 -rapid.seed=11 -rapid.nofailfile
+```
+
+The regression, parent checks, and mutation check passed; both direct
+demonstrations failed at the expected safety assertion. No goroutines were added.
+Capacity rejection, crash recovery, sensor capture, physical boot detection, and
+concurrent-call serialization have no corresponding implementation here. Porting
+their model alternatives into synthetic Go helpers would test those helpers, not
+the attributor, so those implementation tests remain future work.
+
 ## Limits and liveness
 
 These are separate small models, not a combined cross-product check or a

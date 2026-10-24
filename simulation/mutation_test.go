@@ -52,6 +52,9 @@ func TestTargetedMutations(t *testing.T) {
 			return mutationReplace(t, s,
 				"\tif result, exists := a.results[event.EventID]; exists {\n\t\treturn result\n\t}\n", "", 1)
 		}},
+		{"keep-resolved-events-pending", "TestTLCResolvedResultSurvivesMetadataConflict", func(t *testing.T, s string) string {
+			return mutationReplace(t, s, "\tdelete(a.pending, metadata.Key)\n", "", 1)
+		}},
 	}
 	for _, mutation := range mutations {
 		t.Run(mutation.name, func(t *testing.T) {
@@ -109,13 +112,15 @@ func eraseIdentityField(t *testing.T, source, assignment string) string {
 	return source + "\nfunc mutationKey(key ProcessKey) ProcessKey { " + assignment + "; return key }\n"
 }
 
-func runNamedContract(t *testing.T, name, overlay string) (bool, string) {
+func runNamedContract(t *testing.T, name, overlay string, extraEnv ...string) (bool, string) {
 	t.Helper()
 	args := []string{"test", "-json", ".", "-run", "^" + name + "$", "-count=1", "-timeout=30s"}
 	if overlay != "" {
 		args = append(args, "-overlay", overlay)
 	}
-	output, err := exec.Command("go", args...).CombinedOutput()
+	command := exec.Command("go", args...)
+	command.Env = append(os.Environ(), extraEnv...)
+	output, err := command.CombinedOutput()
 	var exitErr *exec.ExitError
 	if err != nil && !errors.As(err, &exitErr) {
 		t.Fatalf("cannot run contract test: %v\n%s", err, output)

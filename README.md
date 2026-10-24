@@ -22,7 +22,7 @@ From the repository root:
 
 ```sh
 cd simulation
-unset PID_ATTRIBUTION_FAULTY
+unset PID_ATTRIBUTION_FAULTY PID_ATTRIBUTION_UNTRUSTED_DEMO
 go test . -run '^(TestDelayedEventAfterPIDReuse|TestNewEventWithOnlyPreviousLifetimeMetadata|TestActivityBeforeMetadata)$' -count=1 -v
 go test ./... -count=1 -rapid.seed=11 -rapid.nofailfile
 go vet ./...
@@ -31,7 +31,9 @@ go vet ./...
 Each command should exit with status **0**. The full suite includes deterministic
 regressions, generated properties, and automated mutation checks. Mutation checks
 launch child Go test processes with temporary source overlays; expected failures
-inside those child processes make the enclosing mutation checks pass.
+inside those child processes make the enclosing mutation checks pass. The suite
+also checks two [TLC-derived input-trust counterexamples](formal/extensions/README.md#go-tests-transferred-from-the-models)
+in child Go tests, requiring their specific expected safety failures.
 
 For fresh generated inputs, run `go test ./... -count=1`. The fixed seed above
 makes the run reproducible; `-rapid.nofailfile` prevents failure-artifact writes.
@@ -74,7 +76,8 @@ skipped in this mode because they require the corrected baseline.
 | [faulty/attributor.go](simulation/faulty/attributor.go) | Original current-PID lookup. |
 | [attributor_test.go](simulation/attributor_test.go), [complications_test.go](simulation/complications_test.go) | Regression traces, replay behavior, scope/boot isolation, missing metadata, and repeated reuse. |
 | [property_test.go](simulation/property_test.go), [contract_test.go](simulation/contract_test.go) | Generated schedules, independent oracle, and shared implementation selection. |
-| [mutation_test.go](simulation/mutation_test.go) | Five targeted faults checked against named tests. |
+| [formal_test.go](simulation/formal_test.go) | TLC-derived result stability and input-trust counterexamples against the actual Go implementation. |
+| [mutation_test.go](simulation/mutation_test.go) | Six targeted faults checked against named tests. |
 | [formal/](formal/README.md) | TLA+ model, TLC configurations, counterexample, and bounded-check results. |
 
 [Findings](simulation/FINDINGS.md) explains the counterexamples, guarantees,
