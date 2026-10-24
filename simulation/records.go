@@ -1,6 +1,8 @@
 package simulation
 
 // ProcessKey identifies one lifetime. Incarnation never repeats within Scope.
+// Scope is an opaque identity boundary supplied by the capture source. It must
+// change across boots when incarnation counters can restart.
 type ProcessKey struct {
 	Scope       string
 	PID         int
@@ -15,7 +17,7 @@ type Metadata struct {
 }
 
 type Activity struct {
-	EventID string
+	EventID string     // Globally identifies a logical event; replays keep the first origin.
 	Key     ProcessKey // Captured when the activity occurs, before delivery.
 	Kind    string
 }

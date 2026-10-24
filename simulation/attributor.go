@@ -2,7 +2,8 @@ package simulation
 
 // Attributor associates activities with immutable metadata for their exact
 // capture-time process identity. Use New to initialize it. Calls must be serial.
-// Process keys and event IDs must be unique; history is retained without expiry.
+// Process keys identify unique lifetimes; history is retained without expiry.
+// Event IDs identify logical events: their first delivery fixes their origin.
 type Attributor struct {
 	metadata map[ProcessKey]Metadata
 	pending  map[ProcessKey][]string
@@ -33,6 +34,10 @@ func (a *Attributor) DeliverMetadata(metadata Metadata) {
 func (a *Attributor) DeliverExit(_ ProcessKey) {}
 
 func (a *Attributor) DeliverActivity(event Activity) Attribution {
+	// Replays return the latest result and cannot requeue or rebind an event ID.
+	if result, exists := a.results[event.EventID]; exists {
+		return result
+	}
 	result := Attribution{EventID: event.EventID}
 	if metadata, ok := a.metadata[event.Key]; ok {
 		result.Resolved = true

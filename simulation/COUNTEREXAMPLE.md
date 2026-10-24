@@ -1,9 +1,10 @@
 # Milestone 1: a delayed event crosses PID lifetimes
 
-Current status: milestone 3 adds a corrected implementation and the normal suite
-passes. Earlier sections record the original failures; their commands now opt
-into the faulty implementation. See [milestone 3](#milestone-3-full-identity-and-retained-history)
-for the fix, assumptions, and passing commands.
+Current status: milestone 4 adds replay handling, complication tests, and checks
+that targeted mutations are caught. The normal suite passes. Earlier sections
+record the original failures; their commands opt into the faulty implementation.
+See [milestone 3](#milestone-3-full-identity-and-retained-history) for the fix and
+[milestone 4](#milestone-4-challenging-the-contract) for the added contracts and limits.
 
 The ordinary Go test reproduces a false attribution. The implementation in
 `faulty/` is deliberately incorrect and remains unfixed for this milestone.
@@ -274,3 +275,89 @@ combined-property cases with seed 11. `go vet ./...` also passed. Normal
 The same suite with `PID_ATTRIBUTION_FAULTY=1` and seed 11 exited with status 1,
 reproducing wrong-lifetime attribution and missing resolution, including failures
 in all five deterministic tests. No dependency was added or upgraded.
+
+## Milestone 4: challenging the contract
+
+Each complication was introduced and tested separately, after stating its
+contract. `complications_test.go` exercises the same implementation factory as
+the earlier regressions and properties. Only replay handling required a behavior
+change: `DeliverActivity` now returns an existing event ID's latest result before
+looking up metadata or adding a pending entry. Public method signatures and
+dependencies are unchanged; no goroutines were added.
+
+### Added contracts
+
+| Complication | Contract | Named tests |
+|---|---|---|
+| Duplicate delivery | An event ID identifies one logical event globally. Its first delivery fixes the origin; replays return its current result without requeuing it, even if a replay supplies a different payload. Identical metadata and exit messages are idempotent. | `TestDuplicateDelivery`, `TestEventIDKeepsFirstOrigin` |
+| Equal numbers in separate scopes | Metadata for one scope cannot resolve or overwrite an event in another, even when PID and incarnation are identical. Check activity-first and metadata-first delivery. | `TestScopeIsolation` |
+| Host reboot | Capture assigns a fresh scope identity to each boot, allowing PID and incarnation counters to restart without cross-matching. Old metadata and exits cannot disturb the new boot. | `TestRebootUsesFreshScope` |
+| Metadata never delivered | The event remains explicitly unresolved across exits, unrelated deliveries, and PID reuse. Events with matching metadata still resolve. | `TestMissingMetadataRemainsUnresolved` |
+| Several PID reuses | Four successive lifetimes share a PID. Deliver newest metadata first, then scrambled old metadata and exits. Check pending and resolved results after each such delivery, and deliver additional captured events after all exits. | `TestDelayedMessagesAcrossSeveralPIDReuses` |
+
+The replay policy deliberately makes conflicting uses of the same event ID
+**first-delivery-wins**. It does not establish which conflicting payload is true.
+The capture source must assign globally unique IDs to distinct events, including
+across scopes and boots. Delivery-order independence applies to nonconflicting
+message sets; changing the first payload of a conflicting ID can change the
+result. Conflicting metadata for the same process key is still outside the
+immutable-metadata contract.
+
+Boot identity is represented in the existing opaque `Scope` string (the fixture
+uses `host-1/boot-A` and `host-1/boot-B`). There is no automatic reboot detection
+or real host integration. The source must supply a distinct, unambiguous scope
+when counters restart; PID plus incarnation alone cannot establish that boundary.
+
+### Mutation evidence
+
+`TestTargetedMutations` builds temporary Go source overlays of the actual corrected
+implementation. Each mutation is independent. It first runs the named test against
+unmodified code, then requires that exact test to fail with the overlay. The
+repository source is never rewritten. Mutations affecting identity change only
+storage and lookup keys, preserving the original identities in message payloads
+and results, so failures demonstrate incorrect matching.
+
+| Deliberate fault | Test that caught it | Property and observed failure |
+|---|---|---|
+| Ignore incarnation in metadata/pending indexes | `TestNewEventWithOnlyPreviousLifetimeMetadata` | No false attribution / honest uncertainty: an incarnation-4 event resolves to incarnation 1 while its own metadata is absent. |
+| Ignore scope in metadata/pending indexes | `TestScopeIsolation` | Scope isolation / no false attribution: scope B's event resolves to scope A in both delivery orders. |
+| Delete matching historical metadata on exit | `TestDelayedEventAfterPIDReuse` | Useful attribution with retention: the event remains unresolved even though its matching metadata was previously delivered. |
+| Always return unresolved, including after metadata arrives | `TestActivityBeforeMetadata` | Useful attribution: after both messages arrive, the stored result is still unresolved. This variant can satisfy no-false-attribution alone. |
+| Remove event-ID deduplication | `TestEventIDKeepsFirstOrigin` | First-origin stability: a conflicting replay queues the same event ID under another process, and that process's metadata resolves it incorrectly. |
+
+All five mutations were caught, and every unmodified baseline passed. The harness
+reads `go test -json` results: a build error or missing named test does not count
+as a caught mutation. Source replacements check their expected occurrence counts
+and fail visibly if a refactor changes a mutation's anchor. This keeps the faults
+small and reviewable, at the cost of updating anchors after relevant refactors.
+
+### Reproduce and limits
+
+From `simulation/` (set `GOCACHE=/tmp/pid-attribution-go-build` if needed):
+
+```sh
+# The new contract tests, without generated properties or mutation builds.
+go test . -run '^(TestDuplicateDelivery|TestEventIDKeepsFirstOrigin|TestScopeIsolation|TestRebootUsesFreshScope|TestMissingMetadataRemainsUnresolved|TestDelayedMessagesAcrossSeveralPIDReuses)$' -count=1 -v
+
+# Prints the named assertion failure that catches each fault; overall exit is 0.
+go test . -run '^TestTargetedMutations$' -count=1 -v
+
+# Normal suite, including properties and automated mutation checks.
+go test ./... -count=1 -rapid.seed=11 -rapid.nofailfile
+go vet ./...
+```
+
+The mutation checks require the Go toolchain on `PATH` and a writable build cache;
+they run child test processes sequentially and use temporary files. They are
+skipped under `PID_ATTRIBUTION_FAULTY=1`, which remains the separate intentionally
+failing original demonstration.
+
+These results establish that named assertions reject these particular faults.
+They do not establish that every possible mutation is detected or that all
+delivery schedules are correct. The new complications have deterministic tests;
+the existing Rapid state machine still generates its original single-scope,
+unique-event schedules. The missing-metadata test observes a finite delivery
+prefix with metadata permanently withheld in the fixture, not an infinite-time
+proof. Identity capture correctness, real reboot integration, concurrent access,
+crash recovery, bounded retention, and conflicting metadata remain unverified.
+Metadata, results, and unresolved events still have unbounded retention.
