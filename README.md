@@ -13,6 +13,8 @@ crashes, capture/boot identity, and concurrent delivery with explicit assumption
 [Go boundary implementations](simulation/BOUNDARIES.md) now add a bounded,
 serialized backend, file-snapshot recovery, and a capture adapter with a Linux
 boot-ID reader. A live event collector remains future work.
+[Logical-time retention](simulation/RETENTION.md) adds opt-in metadata expiration,
+terminal unresolved deadlines, durable answers, and a reproducible coverage experiment.
 
 ## Run the passing suite
 
@@ -78,6 +80,7 @@ skipped in this mode because they require the corrected baseline.
 | [records.go](simulation/records.go) | Process identity, metadata, activity, and attribution records. |
 | [attributor.go](simulation/attributor.go) | Corrected synchronous attributor; `Result(eventID)` exposes later resolution. |
 | [backend.go](simulation/backend.go), [file_snapshot.go](simulation/file_snapshot.go) | Bounded, serialized delivery with optional snapshot persistence and restart recovery. |
+| [retention.go](simulation/retention.go), [retention tests and evidence](simulation/RETENTION.md) | Explicit logical time, expiry, recovery, independent interval oracle, five additional mutants, and coverage tradeoffs. |
 | [sensor.go](simulation/sensor.go) | Coherent-source capture adapter, fresh boot detection, and Linux boot-ID reader. |
 | [faulty/attributor.go](simulation/faulty/attributor.go) | Original current-PID lookup. |
 | [attributor_test.go](simulation/attributor_test.go), [complications_test.go](simulation/complications_test.go) | Regression traces, replay behavior, scope/boot isolation, missing metadata, and repeated reuse. |

@@ -7,6 +7,7 @@ case "$extension_case" in
     limits-unbounded|limits-reject|crash-volatile|crash-durable) extension_module=Storage ;;
     capture-snapshot|capture-late|boot-stale) extension_module=Capture ;;
     concurrent-unlocked|concurrent-serialized) extension_module=Concurrent ;;
+    retention|retention-pid-fallback|retention-recompute|retention-revive|retention-unresolved) extension_module=Retention ;;
     *) echo "unknown extension configuration: $extension_case" >&2; exit 2 ;;
 esac
 cd "$(dirname "$0")"

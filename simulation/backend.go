@@ -10,13 +10,14 @@ import (
 )
 
 var (
-	ErrCapacity = errors.New("attribution capacity exhausted")
-	ErrConflict = errors.New("metadata conflicts with retained identity")
-	ErrStorage  = errors.New("storage outcome uncertain; reopen backend before continuing")
+	ErrCapacity       = errors.New("attribution capacity exhausted")
+	ErrConflict       = errors.New("metadata conflicts with retained identity")
+	ErrStorage        = errors.New("storage outcome uncertain; reopen backend before continuing")
+	ErrClockBackwards = errors.New("logical clock cannot move backwards")
 )
 
 // Limits bound retained entries, including pending events, not bytes or queues.
-// Zero rejects new entries. Accepted entries are never evicted.
+// Zero rejects new entries. Event IDs are never evicted; metadata may expire.
 type Limits struct {
 	Metadata int
 	Events   int
@@ -31,16 +32,30 @@ type SnapshotStore interface {
 }
 
 type backendSnapshot struct {
-	Version  int
-	Limits   Limits
-	Metadata []Metadata
-	Events   []Activity
+	Version   int
+	Limits    Limits
+	Retention Retention
+	Now       uint64
+	Metadata  []cachedMetadata
+	Events    []retainedEvent
+}
+
+type cachedMetadata struct {
+	Metadata   Metadata
+	AcceptedAt uint64
+}
+
+type retainedEvent struct {
+	Activity   Activity
+	Result     Attribution
+	AcceptedAt uint64
+	Expired    bool
 }
 
 // Backend adds bounded admission, whole-call serialization, and optional durable
 // snapshots to Attributor. Use OpenBackend; do not copy a Backend. Only one
 // Backend may own a SnapshotStore at a time, including across processes.
-// Metadata is immutable; conflicting deliveries are rejected. Event IDs retain
+// Metadata is immutable; conflicts with cached records are rejected. Event IDs retain
 // first-delivery-wins semantics. Neither rule authenticates the first input.
 type Backend struct {
 	mu       sync.Mutex
@@ -50,13 +65,18 @@ type Backend struct {
 	failed   error
 }
 
-// OpenBackend restores accepted inputs and reconstructs their pending/results
-// indexes. A nil store is volatile. Reopening requires the same limits.
+// OpenBackend retains metadata and pending events indefinitely. A nil store is
+// volatile. Reopening requires the same limits and retention configuration.
 func OpenBackend(limits Limits, store SnapshotStore) (*Backend, error) {
+	return OpenBackendWithRetention(limits, Retention{}, store)
+}
+
+// OpenBackendWithRetention enables explicit logical-time expiry. See RETENTION.md.
+func OpenBackendWithRetention(limits Limits, retention Retention, store SnapshotStore) (*Backend, error) {
 	if limits.Metadata < 0 || limits.Events < 0 {
 		return nil, errors.New("negative attribution capacity")
 	}
-	b := &Backend{core: New(), store: store, snapshot: backendSnapshot{Version: 1, Limits: limits}}
+	b := &Backend{core: New(), store: store, snapshot: backendSnapshot{Version: 2, Limits: limits, Retention: retention}}
 	if store == nil {
 		return b, nil
 	}
@@ -70,33 +90,17 @@ func OpenBackend(limits Limits, store SnapshotStore) (*Backend, error) {
 		}
 		return b, nil
 	}
-	var restored backendSnapshot
-	if err := json.Unmarshal(data, &restored); err != nil {
+	s, err := decodeSnapshot(data, retention)
+	if err != nil {
 		return nil, fmt.Errorf("decode snapshot: %w", err)
 	}
-	b.snapshot = restored
-	s := restored
-	if s.Version != 1 || s.Limits != limits || len(s.Metadata) > limits.Metadata || len(s.Events) > limits.Events {
+	if s.Version != 2 || s.Limits != limits || s.Retention != retention || len(s.Metadata) > limits.Metadata || len(s.Events) > limits.Events {
 		return nil, errors.New("snapshot version, limits, or entry count mismatch")
 	}
-	for _, m := range s.Metadata {
-		if !validMetadata(m) {
-			return nil, errors.New("invalid metadata identity in snapshot")
-		}
-		if _, exists := b.core.metadata[m.Key]; exists {
-			return nil, errors.New("duplicate metadata identity in snapshot")
-		}
-		b.core.DeliverMetadata(m)
+	if err := validateSnapshot(s); err != nil {
+		return nil, err
 	}
-	for _, e := range s.Events {
-		if !validActivity(e) {
-			return nil, errors.New("invalid activity in snapshot")
-		}
-		if _, exists := b.core.Result(e.EventID); exists {
-			return nil, errors.New("duplicate event ID in snapshot")
-		}
-		b.core.DeliverActivity(e)
-	}
+	b.snapshot, b.core = s, coreFromSnapshot(s)
 	return b, nil
 }
 
@@ -128,6 +132,7 @@ func (b *Backend) commit(next backendSnapshot) error {
 		}
 	}
 	b.snapshot = next
+	b.core = coreFromSnapshot(next)
 	return nil
 }
 
@@ -150,12 +155,14 @@ func (b *Backend) DeliverMetadata(m Metadata) error {
 		return ErrCapacity
 	}
 	next := b.snapshot
-	next.Metadata = append(slices.Clone(next.Metadata), m)
-	if err := b.commit(next); err != nil {
-		return err
+	next.Metadata = append(slices.Clone(next.Metadata), cachedMetadata{Metadata: m, AcceptedAt: next.Now})
+	candidate := coreFromSnapshot(b.snapshot)
+	candidate.DeliverMetadata(m)
+	next.Events = slices.Clone(next.Events)
+	for i := range next.Events {
+		next.Events[i].Result, _ = candidate.Result(next.Events[i].Activity.EventID)
 	}
-	b.core.DeliverMetadata(m)
-	return nil
+	return b.commit(next)
 }
 
 func (b *Backend) DeliverActivity(e Activity) (Attribution, error) {
@@ -174,14 +181,16 @@ func (b *Backend) DeliverActivity(e Activity) (Attribution, error) {
 		return Attribution{}, ErrCapacity
 	}
 	next := b.snapshot
-	next.Events = append(slices.Clone(next.Events), e)
+	candidate := coreFromSnapshot(b.snapshot)
+	result := candidate.DeliverActivity(e)
+	next.Events = append(slices.Clone(next.Events), retainedEvent{Activity: e, Result: result, AcceptedAt: next.Now})
 	if err := b.commit(next); err != nil {
 		return Attribution{}, err
 	}
-	return b.core.DeliverActivity(e), nil
+	return result, nil
 }
 
-// DeliverExit retains history and does not consume capacity.
+// DeliverExit does not affect retention deadlines or consume capacity.
 func (b *Backend) DeliverExit(key ProcessKey) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()

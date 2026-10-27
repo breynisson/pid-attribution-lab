@@ -218,8 +218,9 @@ it possible. `UsefulAttribution` checks this in the safety configurations, which
 have no fairness assumption. Missing inputs remain explicitly unresolved, and
 unrelated events with available metadata can resolve. This requires retained
 metadata and pending events, consistent metadata, and unique identities. Unbounded
-retention has a memory cost; adding expiry would require a different recovery
-contract.
+retention has a memory cost. The subsequent [retention extension](extensions/README.md#retention)
+adds expiry under a narrower usefulness contract, preserving answers directly
+across recovery. This original model retains its unlimited-duration assumptions.
 
 `TestTLCUnfairDeliveryAndRecovery` in
 [attributor_test.go](../simulation/attributor_test.go) preserves the unfair trace's

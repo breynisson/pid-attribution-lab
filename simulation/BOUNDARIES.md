@@ -17,21 +17,29 @@ Do not use an old backend after handing its store to a recovered instance.
 
 Metadata and event capacities count retained entries, including pending events.
 Zero rejects new entries, and negative capacities are invalid. New entries at
-capacity return `ErrCapacity`; duplicates remain admissible. No eviction, expiry,
-or automatic retry occurs. Capacity can remain full indefinitely. An accepted
+capacity return `ErrCapacity`; duplicates remain admissible. The default API has
+no expiry or automatic retry. Opt-in [logical-time retention](RETENTION.md)
+expires metadata and finalizes pending events as unresolved. Event IDs remain
+retained; event capacity can remain full indefinitely. An accepted
 event can remain unresolved if its metadata is rejected or never arrives.
 
 Unlike the original core, this wrapper explicitly rejects contradictory metadata
-with `ErrConflict`, comparing the entire metadata record. This is needed to
-reconstruct stable results from persisted inputs. Event IDs retain first-delivery
-wins behavior. Neither rule establishes whether the first input is true.
+with `ErrConflict`, comparing the entire cached metadata record. With expiration,
+this check lasts only as long as the record remains cached. Event IDs retain
+first-delivery-wins behavior. Neither rule establishes whether the first input
+is true or authenticates later metadata after its previous lease was forgotten.
 
-Each successful mutation saves the complete accepted metadata/activity set before
-publishing it in memory or returning success. Recovery reconstructs results and
-pending indexes from those inputs. Immutable metadata and retained first event
-identities make reconstruction independent of delivery order. There is no query
-of live processes during recovery. Invalid snapshots are rejected; recovery does
-not silently reset damaged state. Reopening requires identical capacity settings.
+Each successful mutation saves the complete retained state before publishing it
+in memory or returning success. Version-2 snapshots store event results, terminal
+expiry flags, admission times, retention policy and logical time. Recovery restores
+answers directly and rebuilds the pending index only for active unresolved events.
+It never recomputes published answers from potentially expired metadata or queries
+live processes. Structural inconsistencies are rejected; the snapshot is trusted
+storage, not authenticated proof of capture truth. Recovery does not silently
+reset damaged state. Reopening requires identical capacity and retention settings.
+Version-1 snapshots migrate with expiration disabled and are saved as version 2
+on the next mutation; opting them into finite TTLs is rejected because they lack
+admission times. Earlier binaries cannot read version-2 snapshots.
 Stored strings must be valid UTF-8: JSON's replacement of invalid sequences must
 not silently change an accepted identity or workload during recovery.
 
@@ -49,8 +57,8 @@ Discard the instance, reopen the store, and retry with the same event ID and
 payload. This handles either surviving snapshot without claiming exactly-once
 delivery. Capacity rejection and metadata conflicts do not poison the instance.
 
-Snapshots cost O(retained entries) serialization and disk work per accepted
-delivery, and hold the backend mutex during I/O. This is deliberately a small
+Snapshots and candidate indexes cost O(retained entries) work per accepted
+delivery or clock advance, and hold the backend mutex during I/O. This is a small
 lab implementation. Entry limits do not bound payload bytes, temporary copies,
 disk space, or upstream queues. There is no journal, reclamation protocol,
 multi-writer coordination, disk-corruption repair, or power-loss certification.
@@ -145,7 +153,7 @@ acknowledgement loss after commit. They do not simulate a physical power failure
 The focused tests, full Go suite, `go vet`, and race checks passed on macOS;
 Linux reader integration was skipped there. The test binary also cross-compiled
 for Linux/amd64, which checks compilation, not Linux execution. The model
-configurations have not been expanded to prove the
+configurations do not prove the
 snapshot format, filesystem protocol, error states, or combined Go pipeline.
 These tests give implementation evidence, not a refinement proof or exhaustive
 verification. Liveness still needs delivery, available capacity, working storage,

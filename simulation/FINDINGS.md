@@ -112,9 +112,10 @@ unknown event from a delivered but unresolved one.
 These guarantees depend on accurate, unique capture-time keys and consistent
 metadata. Retaining metadata supports delayed activities after exit. Retaining
 pending events supports metadata arriving later. Retaining results supports
-queries and replay protection. All retention is currently unbounded. Expiration
-would require a narrower resolution contract and an unresolved policy when
-history is insufficient; it must never justify guessing the current PID holder.
+queries and replay protection. Retention in this original core is unbounded.
+The subsequent [backend retention extension](RETENTION.md) defines a narrower
+resolution contract, explicit logical time and terminal unresolved deadlines.
+Expired history never justifies guessing the current PID holder.
 
 Distinct logical events require globally unique event IDs across scopes and
 boots. Conflicting uses of an ID are first-delivery-wins, which preserves the
